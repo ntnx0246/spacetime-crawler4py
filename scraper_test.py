@@ -136,6 +136,11 @@ def checkIPAddress(address):
 if __name__ == "__main__":
     # soup = BeautifulSoup(html_doc, 'html.parser')
     # print(soup.prettify())
-    response = requests.get("https://cnn.com")
+    response = requests.get("https://isg.ics.uci.edu/events/tag/talks/list/?tribe-bar-date=2022-11-02")
     resp = MockResp(response)
-    print(extract_next_links("https://cnn.com", resp))
+    print(extract_next_links("https://isg.ics.uci.edu/events/tag/talks/list/?tribe-bar-date=2022-11-02", resp))
+
+    print(f'There are {len(unique_pages)} unique pages')
+    print(longest_page)
+    print(dict(sorted(word_frequencies.items(), key=lambda item: item[1])[:50]))
+    print(dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower())))

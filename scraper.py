@@ -65,8 +65,8 @@ def extract_next_links(url, resp):
     text = soup.get_text().split()
     words = [word.lower() for word in text if word.isalpha() and word.lower() not in stop_words]
 
-    # If the page has less than 100 words, we consider it not useful for our purposes and skip it to save resources.
-    if len(words) < 100:
+    # If the page has less than 300 words, we consider it not useful for our purposes and skip it to save resources.
+    if len(words) < 300:
         print(f"Not enough words for {url}")
         return list()
     
@@ -155,3 +155,11 @@ def is_valid(url):
         
     except:
         print("Something is very bad!")
+
+
+#Report
+print(f'There are {len(unique_pages)} unique pages')
+print(longest_page)
+print(dict(sorted(word_frequencies.items(), key=lambda item: item[1])[:50]))
+print(dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower())))
+
