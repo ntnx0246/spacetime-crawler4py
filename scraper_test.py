@@ -2,6 +2,9 @@ import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 import requests
+import socket
+import ipaddress
+import scraper
 
 unique_pages = set() 
 longest_page = {"url":"", "word_count":0} #url, length
@@ -53,10 +56,6 @@ def extract_next_links(url, resp):
     if len(resp.raw_response.content) == 0:
         print(f"Empty content for {url}")
         return list()
-    
-    if len(resp.raw_response.content) > 1000000:
-        print(f"Content too large for {url}")
-        return list()
 
     # Use BeautifulSoup to extract the text from the page and split it into words. Then filter out non-alphabetic words and stop words, and convert the remaining words to lowercase.
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
@@ -91,7 +90,8 @@ def extract_next_links(url, resp):
 
     for link in soup.find_all('a', href=True):
         href = link['href']
-        extract_next_links.append(urlparse(href)._replace(fragment='').geturl())
+        if scraper.is_valid(href):
+            extract_next_links.append(urlparse(href)._replace(fragment='').geturl())
         
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     return extract_next_links
@@ -114,10 +114,28 @@ class MockResp:
         self.status = response.status_code
         self.raw_response = response
         
-        
+    
+
+# Checks if the url is a valid IPv4 or IPv6 address
+def checkIPAddress(address):
+    try: 
+        addr_info = socket.getaddrinfo(address, None, socket.AF_UNSPEC)
+        for info in addr_info:
+            ip_str = info[4][0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            print(ip_obj.version)     
+            if ip_obj.version == 4:
+                return True    
+            elif ip_obj.version == 6:
+                return True
+
+        return False
+    except:
+        return False
+    
 if __name__ == "__main__":
-    soup = BeautifulSoup(html_doc, 'html.parser')
-    print(soup.prettify())
+    # soup = BeautifulSoup(html_doc, 'html.parser')
+    # print(soup.prettify())
     response = requests.get("https://cnn.com")
     resp = MockResp(response)
     print(extract_next_links("https://cnn.com", resp))

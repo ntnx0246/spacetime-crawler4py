@@ -1,6 +1,8 @@
 import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+import ipaddress
+import socket
 
 unique_pages = set() 
 longest_page = {"url":"", "word_count":0} #url, length
@@ -31,9 +33,10 @@ stop_words = {
     "yourselves"
 }
 
+# We found that it is more efficient and effective to call is_valid before adding the links to the list. So, therefore, links only contains is_valid() links.
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    return extract_next_links(url, resp)
+    
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -52,13 +55,9 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
 
-    # Check if the content is empty or too large to avoid wasting resources on processing it
+    # Check if the content is empty to avoid wasting resources on processing it (Error code 607 checks if content is too big)
     if len(resp.raw_response.content) == 0:
         print(f"Empty content for {url}")
-        return list()
-    
-    if len(resp.raw_response.content) > 1000000:
-        print(f"Content too large for {url}")
         return list()
     
     # Use BeautifulSoup to extract the text from the page and split it into words. Then filter out non-alphabetic words and stop words, and convert the remaining words to lowercase.
@@ -94,7 +93,9 @@ def extract_next_links(url, resp):
 
     for link in soup.find_all('a', href=True):
         href = link['href']
-        extract_next_links.append(urlparse(href)._replace(fragment='').geturl())
+        if is_valid(href):
+            href = link['href']
+            extract_next_links.append(urlparse(href)._replace(fragment='').geturl())
         
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     return extract_next_links
@@ -103,50 +104,54 @@ def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
-    parsed = urlparse(url)
-
     try:
-        if parsed.scheme not in set(["http", "https"]):
-            return False
-        
+        parsed = urlparse(url)
 
-        #Check if the url is in the list of valid domains
-        valid_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
-        valid = False
-        
-        for domain in valid_domains:
-            #First condition checks for subdomains, second condition checks for the domain itself
-            if parsed.netloc.endswith(domain) or parsed.netloc == domain[1:]:
-                valid = True
-                break
-
-        if not valid:
-            return False
-
-        #Check if the path is too long to avoid infinite trap
-        if len(parsed.path) > 400:
-            return False
-
-        #Check for duplicate paths to avoid infinite trap
-        path_segments = parsed.path.strip("/").split("/")
-
-        #Detects whether a duplicate path exists
-        if len(path_segments) != len(set(path_segments)):
-            #Allow for certain duplicate paths that can happen because of chance in a valid url
-            if len(path_segments) >= 5 and len(set(path_segments)) < len(path_segments) - 2:
+        try:
+            
+            if parsed.scheme not in set(["http", "https"]):
                 return False
-        
-        
-        return not re.match(
-            r".*\.(css|js|bmp|gif|jpe?g|ico"
-            + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
-            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
-            + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
-            + r"|epub|dll|cnf|tgz|sha1"
-            + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+            
 
-    except TypeError:
-        print ("TypeError for ", parsed)
-        raise
+            #Check if the url is in the list of valid domains
+            valid_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
+            valid = False
+            
+            for domain in valid_domains:
+                #First condition checks for subdomains, second condition checks for the domain itself
+                if parsed.netloc.endswith(domain) or parsed.netloc == domain[1:]:
+                    valid = True
+                    break
+
+            if not valid:
+                return False
+
+            #Check if the path is too long to avoid infinite trap
+            if len(parsed.path) > 400:
+                return False
+
+            #Check for duplicate paths to avoid infinite trap
+            path_segments = parsed.path.strip("/").split("/")
+
+            #Detects whether a duplicate path exists
+            if len(path_segments) != len(set(path_segments)):
+                #Allow for certain duplicate paths that can happen because of chance in a valid url
+                if len(path_segments) >= 5 and len(set(path_segments)) < len(path_segments) - 2:
+                    return False
+            
+            return not re.match(
+                r".*\.(css|js|bmp|gif|jpe?g|ico"
+                + r"|png|tiff?|mid|mp2|mp3|mp4"
+                + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
+                + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+                + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
+                + r"|epub|dll|cnf|tgz|sha1"
+                + r"|thmx|mso|arff|rtf|jar|csv"
+                + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+
+        except TypeError:
+            print ("TypeError for ", parsed)
+            raise
+        
+    except:
+        print("Something is very bad!")
