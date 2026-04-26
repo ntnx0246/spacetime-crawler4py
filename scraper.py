@@ -1,8 +1,6 @@
 import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-import ipaddress
-import socket
 
 unique_pages = set() 
 longest_page = {"url":"", "word_count":0} #url, length
@@ -163,3 +161,10 @@ print(longest_page)
 print(dict(sorted(word_frequencies.items(), key=lambda item: item[1])[:50]))
 print(dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower())))
 
+#Notes:
+#Get rid of calendar/date stuff
+#Add check for to much content
+#Add multi threading
+#Copy detection
+#Specific error detection
+# Refactor code functions to be simpler
