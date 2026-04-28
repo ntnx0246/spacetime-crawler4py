@@ -162,11 +162,11 @@ print(dict(sorted(word_frequencies.items(), key=lambda item: item[1])[:50]))
 print(dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower())))
 
 #Notes:
-#Get rid of calendar/date stuff
-#Add check for to much content (does not download files that are too large)
+# Filter out calendar/date stuff
+# Add check for to much content (does not download files that are too large)
 # Error checking to ensure web crawler does not crash
-#Add multi threading
+# Add multi threading
 # Add statistics to output such as text file
-#Copy detection
-#Specific error detection
+# Copy detection (check just the text with beautiful soup) 
+# Specific error detection (for is valid to tell us what went wrong)
 # Refactor code functions to be simpler
