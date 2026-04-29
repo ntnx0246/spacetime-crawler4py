@@ -68,11 +68,12 @@ def extract_next_links(url, resp):
     except Exception as e:
         print(f"Beautiful Soup crashed on {url}: {e}")
         return list()    
-    text = soup.get_text().split()
-    words = [word.lower() for word in text if word.isalpha() and word.lower() not in stop_words]
+    text = soup.get_text()
+    extracted_words = re.findall(r'[a-zA-Z]+', text)
+    words = [word.lower() for word in extracted_words if word.lower() not in stop_words]
 
-    # If the page has less than 300 words, we consider it not useful for our purposes and skip it to save resources.
-    if len(words) < 300:
+    # If the page has less than 50 words, we consider it not useful for our purposes and skip it to save resources.
+    if len(words) < 50:
         print(f"Not enough words for {url}")
         return list()
     
@@ -128,10 +129,12 @@ def is_valid(url):
         #Check if the url is in the list of valid domains
         valid_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
         valid = False
-            
+        
+        hostname = parsed.hostname or ""
+    
         for domain in valid_domains:
             #First condition checks for subdomains, second condition checks for the domain itself
-            if parsed.netloc.endswith(domain) or parsed.netloc == domain[1:]:
+            if hostname.endswith(domain) or hostname == domain[1:]:
                 valid = True
                 break
 
