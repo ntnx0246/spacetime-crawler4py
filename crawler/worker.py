@@ -39,4 +39,4 @@ class Worker(Thread):
             self.frontier.mark_url_complete(tbd_url)
             self.frontier.to_be_downloaded.task_done()
 
-            time.sleep(self.config.time_delay)
+            # time.sleep(self.config.time_delay)

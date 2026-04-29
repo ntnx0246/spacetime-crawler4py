@@ -1,8 +1,11 @@
 import os
 import shelve
+import time
 
 from threading import Thread, RLock
 from queue import Queue, Empty
+from urllib.parse import urlparse
+from collections import defaultdict
 
 from utils import get_logger, get_urlhash, normalize
 from scraper import is_valid
@@ -12,7 +15,9 @@ class Frontier(object):
         self.logger = get_logger("FRONTIER")
         self.config = config
         self.to_be_downloaded = Queue()
-        self.lock = RLock() # lock for shelve
+
+        self.last_access_to_host = defaultdict(float)
+        self.last_access_to_host_lock = RLock()
         
         if not os.path.exists(self.config.save_file) and not restart:
             # Save file does not exist, but request to load save.
@@ -24,8 +29,11 @@ class Frontier(object):
             self.logger.info(
                 f"Found save file {self.config.save_file}, deleting it.")
             os.remove(self.config.save_file)
+
         # Load existing save file, or create one if it does not exist.
         self.save = shelve.open(self.config.save_file)
+        self.lock = RLock() # lock for shelve
+
         if restart:
             for url in self.config.seed_urls:
                 self.add_url(url)
@@ -47,13 +55,48 @@ class Frontier(object):
         self.logger.info(
             f"Found {tbd_count} urls to be downloaded from {total_count} "
             f"total urls discovered.")
+    
+    def _get_host(self, url: str):
+        return urlparse(url).hostname
+    
+    def satisfies_politeness(self, url: str):
+        host = self._get_host(url)
+        with self.last_access_to_host_lock:
+            last_access = self.last_access_to_host[host]
+
+            if time.time() - last_access >= self.config.time_delay:
+                self.last_access_to_host[host] = time.time()
+                return True
+            
+            return False
 
     def get_tbd_url(self):
-        try:
-            return self.to_be_downloaded.get(timeout=2)
-        except Empty:
-            return None
+        skipped = []
 
+        while True:
+            try:
+                url = self.to_be_downloaded.get(timeout=2)
+            except Empty:
+                if len(skipped) == 0:
+                    break
+
+                time.sleep(0.1)
+
+                for u in skipped:
+                    self.to_be_downloaded.put(u)
+                continue
+
+
+            if self.satisfies_politeness(url):
+                # put skipped ones back in queue
+                for u in skipped:
+                    self.to_be_downloaded.put(u)
+                return url
+
+            skipped.append(url)
+
+        return None
+        
     def add_url(self, url):
         url = normalize(url)
         urlhash = get_urlhash(url)

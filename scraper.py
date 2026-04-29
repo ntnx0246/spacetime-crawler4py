@@ -200,11 +200,11 @@ def generate_report():
         print(f"Could not write to file: {e}")
 
 #Notes:
-# Filter out calendar/date stuff (Done)
-# Add check for to much content (does not download files that are too large) (Done)
-# Error checking to ensure web crawler does not crash (Done)
-# Add multi threading (Done)
-# Add statistics to output such as text file (Done)
+# Filter out calendar/date stuff
+# Add check for to much content (does not download files that are too large)
+# Error checking to ensure web crawler does not crash
+# DONE: Add multi threading
+# Add statistics to output such as text file
 # Copy detection (check just the text with beautiful soup) 
 # Specific error detection (for is valid to tell us what went wrong) 
 # Refactor code functions to be simpler
