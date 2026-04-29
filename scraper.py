@@ -133,11 +133,9 @@ def is_valid(url):
         valid_domains = ("ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu")
         valid = False
 
-        for domain in valid_domains:
-            if hostname == domain or hostname.endswith(f".{domain}"):
-                valid = True
-            else:
-                valid = False
+        valid = any(hostname == domain or hostname.endswith(f".{domain}") for domain in valid_domains)
+        if not valid:
+            return False
 
         if not valid:
             return False
