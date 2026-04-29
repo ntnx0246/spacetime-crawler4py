@@ -71,11 +71,6 @@ def extract_next_links(url, resp):
     text = soup.get_text()
     extracted_words = re.findall(r'[a-zA-Z]+', text)
     words = [word.lower() for word in extracted_words if word.lower() not in stop_words]
-
-    # If the page has less than 50 words, we consider it not useful for our purposes and skip it to save resources.
-    if len(words) < 50:
-        print(f"Not enough words for {url}")
-        return list()
     
     # Find links in the page and convert them to absolute URLs. We will use these links to crawl the next pages.
     valid_links = []
@@ -85,18 +80,22 @@ def extract_next_links(url, resp):
     if defragmented_url not in unique_pages:
         unique_pages.add(defragmented_url)
 
-        # Update longest page if necessary
-        if len(words) > longest_page["word_count"]:
-            longest_page["url"] = defragmented_url
-            longest_page["word_count"] = len(words)
+        #Skip over low text pages
+        if len(words) >= 50:
 
-        # Update word frequencies
-        for word in words:
-            word_frequencies[word] = word_frequencies.get(word, 0) + 1
 
-        if urlparse(defragmented_url).netloc.endswith("uci.edu"):
-            count = subdomain_list.get(urlparse(defragmented_url).netloc, 0)
-            subdomain_list[urlparse(defragmented_url).netloc] = count + 1 
+            # Update longest page if necessary
+            if len(words) > longest_page["word_count"]:
+                longest_page["url"] = defragmented_url
+                longest_page["word_count"] = len(words)
+
+            # Update word frequencies
+            for word in words:
+                word_frequencies[word] = word_frequencies.get(word, 0) + 1
+
+            if urlparse(defragmented_url).netloc.endswith("uci.edu"):
+                count = subdomain_list.get(urlparse(defragmented_url).netloc, 0)
+                subdomain_list[urlparse(defragmented_url).netloc] = count + 1 
 
     for link in soup.find_all('a', href=True):
         href = link['href']
@@ -113,7 +112,7 @@ def extract_next_links(url, resp):
             valid_links.append(next_defragmeneted_url)
         
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    return valid_links
+    return list(dict.fromkeys(valid_links))
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
@@ -124,19 +123,21 @@ def is_valid(url):
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
             return False
-            
+        
+        hostname = (parsed.hostname or "").lower()
+    
+        if not hostname:
+            return False
 
         #Check if the url is in the list of valid domains
-        valid_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
+        valid_domains = ("ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu")
         valid = False
-        
-        hostname = parsed.hostname or ""
-    
+
         for domain in valid_domains:
-            #First condition checks for subdomains, second condition checks for the domain itself
-            if hostname.endswith(domain) or hostname == domain[1:]:
+            if hostname == domain or hostname.endswith(f".{domain}"):
                 valid = True
-                break
+            else:
+                valid = False
 
         if not valid:
             return False
