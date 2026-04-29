@@ -1,5 +1,5 @@
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 
 unique_pages = set() 
@@ -18,7 +18,7 @@ stop_words = {
     "himself", "his", "how", "how's", "i", "i'd", "i'll", "i'm", "i've", "if", 
     "in", "into", "is", "isn't", "it", "it's", "its", "itself", "let's", "me", 
     "more", "most", "mustn't", "my", "myself", "no", "nor", "not", "of", "off", 
-    "on", "once", "only", "or", "other", "ought", "our", "oursourselves", 
+    "on", "once", "only", "or", "other", "ought", "our", "ours", "ourselves", 
     "out", "over", "own", "same", "shan't", "she", "she'd", "she'll", "she's", 
     "should", "shouldn't", "so", "some", "such", "than", "that", "that's", 
     "the", "their", "theirs", "them", "themselves", "then", "there", "there's", 
@@ -45,7 +45,7 @@ def extract_next_links(url, resp):
     # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
     if (resp.status != 200):
         # resp.error: when status is not 200, you can check the error here, if needed.
-        if(resp.error):
+        if(hasattr(resp, 'error') and resp.error):
             print(f"Error crawling {url}: {resp.error}")
         return list()
     
@@ -53,13 +53,21 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
 
-    # Check if the content is empty to avoid wasting resources on processing it (Error code 607 checks if content is too big)
-    if len(resp.raw_response.content) == 0:
+    # Check if the resp.raw_response works and resp.response.content is not empty
+    if not resp.raw_response or not resp.raw_response.content:
         print(f"Empty content for {url}")
         return list()
     
+    #Check for too much content (skip it if larger than 5 MB)
+    if len(resp.raw_response.content) > 5 * 1024 * 1024:
+        print(f"Content too large for {url}")
+        return list()
     # Use BeautifulSoup to extract the text from the page and split it into words. Then filter out non-alphabetic words and stop words, and convert the remaining words to lowercase.
-    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+    try:
+        soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+    except Exception as e:
+        print(f"Beautiful Soup crashed on {url}: {e}")
+        return list()    
     text = soup.get_text().split()
     words = [word.lower() for word in text if word.isalpha() and word.lower() not in stop_words]
 
@@ -69,7 +77,7 @@ def extract_next_links(url, resp):
         return list()
     
     # Find links in the page and convert them to absolute URLs. We will use these links to crawl the next pages.
-    extract_next_links = []
+    valid_links = []
 
     defragmented_url = urlparse(url)._replace(fragment='').geturl()
 
@@ -91,75 +99,97 @@ def extract_next_links(url, resp):
 
     for link in soup.find_all('a', href=True):
         href = link['href']
-        if is_valid(href):
-            href = link['href']
-            extract_next_links.append(urlparse(href)._replace(fragment='').geturl())
+        absolute_url = urljoin(url, href)
+        
+        if is_valid(absolute_url):
+            next_defragmeneted_url = urlparse(absolute_url)._replace(fragment='').geturl()
+            valid_links.append(next_defragmeneted_url)
         
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    return extract_next_links
+    return valid_links
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
+    
     try:
         parsed = urlparse(url)
-
-        try:
-            
-            if parsed.scheme not in set(["http", "https"]):
-                return False
+        if parsed.scheme not in set(["http", "https"]):
+            return False
             
 
-            #Check if the url is in the list of valid domains
-            valid_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
-            valid = False
+        #Check if the url is in the list of valid domains
+        valid_domains = [".ics.uci.edu", ".cs.uci.edu", ".informatics.uci.edu", ".stat.uci.edu"]
+        valid = False
             
-            for domain in valid_domains:
-                #First condition checks for subdomains, second condition checks for the domain itself
-                if parsed.netloc.endswith(domain) or parsed.netloc == domain[1:]:
-                    valid = True
-                    break
+        for domain in valid_domains:
+            #First condition checks for subdomains, second condition checks for the domain itself
+            if parsed.netloc.endswith(domain) or parsed.netloc == domain[1:]:
+                valid = True
+                break
 
-            if not valid:
-                return False
+        if not valid:
+            return False
 
-            #Check if the path is too long to avoid infinite trap
-            if len(parsed.path) > 400:
-                return False
-
-            #Check for duplicate paths to avoid infinite trap
-            path_segments = parsed.path.strip("/").split("/")
-
-            #Detects whether a duplicate path exists
-            if len(path_segments) != len(set(path_segments)):
-                #Allow for certain duplicate paths that can happen because of chance in a valid url
-                if len(path_segments) >= 5 and len(set(path_segments)) < len(path_segments) - 2:
-                    return False
-            
-            return not re.match(
-                r".*\.(css|js|bmp|gif|jpe?g|ico"
-                + r"|png|tiff?|mid|mp2|mp3|mp4"
-                + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
-                + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
-                + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
-                + r"|epub|dll|cnf|tgz|sha1"
-                + r"|thmx|mso|arff|rtf|jar|csv"
-                + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
-
-        except TypeError:
-            print ("TypeError for ", parsed)
-            raise
+        #Check if the path is too long to avoid infinite trap
+        if len(parsed.path) > 400:
+            return False
         
-    except:
-        print("Something is very bad!")
+        path_lower = parsed.path.lower()
+        query_lower = parsed.query.lower()
+        
+        if any(x in path_lower or x in query_lower for x in ['calendar', 'event', 'ical', 'date=', 'day=', 'month=', 'year=']):
+            return False
+        if re.search(r'\d{4}[-/]\d{2}[-/]\d{2}', path_lower) or re.search(r'/\d{4}/\d{2}/', path_lower):
+            return False
+        
+        #Check for duplicate paths to avoid infinite trap
+        path_segments = parsed.path.strip("/").split("/")
+
+        #Detects whether a duplicate path exists
+        if len(path_segments) != len(set(path_segments)):
+            #Allow for certain duplicate paths that can happen because of chance in a valid url
+            if len(path_segments) >= 5 and len(set(path_segments)) < len(path_segments) - 2:
+                return False
+            
+        return not re.match(
+            r".*\.(css|js|bmp|gif|jpe?g|ico"
+            + r"|png|tiff?|mid|mp2|mp3|mp4"
+            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
+            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+            + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
+            + r"|epub|dll|cnf|tgz|sha1"
+            + r"|thmx|mso|arff|rtf|jar|csv"
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+
+    except TypeError:
+        print ("TypeError for ", url)
+        raise
+    except Exception as e:
+        print(f"Something is very bad with URL validation! Error: {e}")
+        return False      
+  
 
 
 #Report
-print(f'There are {len(unique_pages)} unique pages')
-print(longest_page)
-print(dict(sorted(word_frequencies.items(), key=lambda item: item[1])[:50]))
-print(dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower())))
+def generate_report():
+    top_50_words = dict(sorted(word_frequencies.items(), key=lambda item: item[1], reverse=True)[:50])
+    sorted_subdomains = dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower()))
+    
+    report_text = f"There are {len(unique_pages)} unique pages\n"
+    report_text += f"Longest page: {longest_page}\n\n"
+    report_text += "Top 50 words:\n" + str(top_50_words) + "\n\n"
+    report_text += "Subdomains:\n" + str(sorted_subdomains) + "\n"
+    
+    print(report_text)
+    
+    try:
+        with open("crawler_stats.txt", "w", encoding="utf-8") as file:
+            file.write(report_text)
+        print("Stats successfully exported to crawler_stats.txt")
+    except Exception as e:
+        print(f"Could not write to file: {e}")
 
 #Notes:
 # Filter out calendar/date stuff
