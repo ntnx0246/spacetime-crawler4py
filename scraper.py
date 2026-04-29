@@ -99,8 +99,14 @@ def extract_next_links(url, resp):
 
     for link in soup.find_all('a', href=True):
         href = link['href']
-        absolute_url = urljoin(url, href)
-        
+        if not href or not isinstance(href, str):
+            continue
+        try:
+            absolute_url = urljoin(url, str(href))
+        except ValueError as e:
+            print(f"Error joining URL {url} with href {href}: {e}")
+            continue
+
         if is_valid(absolute_url):
             next_defragmeneted_url = urlparse(absolute_url)._replace(fragment='').geturl()
             valid_links.append(next_defragmeneted_url)
