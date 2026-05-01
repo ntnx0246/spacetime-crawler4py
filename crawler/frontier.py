@@ -75,7 +75,7 @@ class Frontier(object):
 
         while True:
             try:
-                url = self.to_be_downloaded.get(timeout=2)
+                url = self.to_be_downloaded.get(timeout=10)
             except Empty:
                 if len(skipped) == 0:
                     break
@@ -91,6 +91,7 @@ class Frontier(object):
                 # put skipped ones back in queue
                 for u in skipped:
                     self.to_be_downloaded.put(u)
+
                 return url
 
             skipped.append(url)

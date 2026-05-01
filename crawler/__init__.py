@@ -22,8 +22,6 @@ class Crawler(object):
         self.start_async()
         self.join()
 
-    def join(self):
-        self.frontier.to_be_downloaded.join()
-        
+    def join(self):        
         for worker in self.workers:
             worker.join()

@@ -1,4 +1,5 @@
 import re
+from threading import Lock
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 
@@ -6,6 +7,8 @@ unique_pages = set()
 longest_page = {"url":"", "word_count":0} #url, length
 word_frequencies = {} #word: count
 subdomain_list = {} #subdomain: count
+
+report_lock = Lock()
 
 stop_words = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", 
@@ -77,25 +80,24 @@ def extract_next_links(url, resp):
 
     defragmented_url = urlparse(url)._replace(fragment='').geturl()
 
-    if defragmented_url not in unique_pages:
-        unique_pages.add(defragmented_url)
+    with report_lock:
+        if defragmented_url not in unique_pages:
+            unique_pages.add(defragmented_url)
 
-        #Skip over low text pages
-        if len(words) >= 50:
+            #Skip over low text pages
+            if len(words) >= 50:
+                # Update longest page if necessary
+                if len(words) > longest_page["word_count"]:
+                    longest_page["url"] = defragmented_url
+                    longest_page["word_count"] = len(words)
 
+                # Update word frequencies
+                for word in words:
+                    word_frequencies[word] = word_frequencies.get(word, 0) + 1
 
-            # Update longest page if necessary
-            if len(words) > longest_page["word_count"]:
-                longest_page["url"] = defragmented_url
-                longest_page["word_count"] = len(words)
-
-            # Update word frequencies
-            for word in words:
-                word_frequencies[word] = word_frequencies.get(word, 0) + 1
-
-            if urlparse(defragmented_url).netloc.endswith("uci.edu"):
-                count = subdomain_list.get(urlparse(defragmented_url).netloc, 0)
-                subdomain_list[urlparse(defragmented_url).netloc] = count + 1 
+                if urlparse(defragmented_url).netloc.endswith("uci.edu"):
+                    count = subdomain_list.get(urlparse(defragmented_url).netloc, 0)
+                    subdomain_list[urlparse(defragmented_url).netloc] = count + 1 
 
     for link in soup.find_all('a', href=True):
         href = link['href']
