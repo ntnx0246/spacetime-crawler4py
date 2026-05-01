@@ -81,7 +81,7 @@ def extract_next_links(url, resp):
         unique_pages.add(defragmented_url)
 
         #Skip over low text pages
-        if len(words) >= 50:
+        if len(words) >= 300:
 
 
             # Update longest page if necessary
