@@ -135,11 +135,14 @@ def is_valid(url):
         valid_domains = ("ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu")
         valid = False
 
+        #Invalid domains
+        invalid_domains = "doku.php"
+
         valid = any(hostname == domain or hostname.endswith(f".{domain}") for domain in valid_domains)
         if not valid:
             return False
 
-        if not valid:
+        if invalid_domains in url:
             return False
 
         #Check if the path is too long to avoid infinite trap

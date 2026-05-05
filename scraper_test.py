@@ -1,15 +1,19 @@
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 import requests
 import socket
 import ipaddress
 import scraper
+from threading import Lock
+
 
 unique_pages = set() 
 longest_page = {"url":"", "word_count":0} #url, length
 word_frequencies = {} #word: count
 subdomain_list = {} #subdomain: count
+
+report_lock = Lock()
 
 stop_words = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", 
@@ -44,7 +48,7 @@ def extract_next_links(url, resp):
     # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
     if (resp.status != 200):
         # resp.error: when status is not 200, you can check the error here, if needed.
-        if(resp.error):
+        if(hasattr(resp, 'error') and resp.error):
             print(f"Error crawling {url}: {resp.error}")
         return list()
     
@@ -52,49 +56,132 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
 
-    # Check if the content is empty or too large to avoid wasting resources on processing it
-    if len(resp.raw_response.content) == 0:
+    # Check if the resp.raw_response works and resp.response.content is not empty
+    if not resp.raw_response or not resp.raw_response.content:
         print(f"Empty content for {url}")
         return list()
-
-    # Use BeautifulSoup to extract the text from the page and split it into words. Then filter out non-alphabetic words and stop words, and convert the remaining words to lowercase.
-    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
-    text = soup.get_text().split()
-    words = [word.lower() for word in text if word.isalpha() and word.lower() not in stop_words]
-
-    # If the page has less than 100 words, we consider it not useful for our purposes and skip it to save resources.
-    if len(words) < 100:
-        print(f"Not enough words for {url}")
+    
+    #Check for too much content (skip it if larger than 5 MB)
+    if len(resp.raw_response.content) > 5 * 1024 * 1024:
+        print(f"Content too large for {url}")
         return list()
+    # Use BeautifulSoup to extract the text from the page and split it into words. Then filter out non-alphabetic words and stop words, and convert the remaining words to lowercase.
+    try:
+        soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+    except Exception as e:
+        print(f"Beautiful Soup crashed on {url}: {e}")
+        return list()    
+    text = soup.get_text()
+    extracted_words = re.findall(r'[a-zA-Z]+', text)
+    words = [word.lower() for word in extracted_words if word.lower() not in stop_words]
     
     # Find links in the page and convert them to absolute URLs. We will use these links to crawl the next pages.
-    extract_next_links = []
+    valid_links = []
 
     defragmented_url = urlparse(url)._replace(fragment='').geturl()
 
-    if defragmented_url not in unique_pages:
-        unique_pages.add(defragmented_url)
+    with report_lock:
+        if defragmented_url not in unique_pages:
+            unique_pages.add(defragmented_url)
 
-        # Update longest page if necessary
-        if len(words) > longest_page["word_count"]:
-            longest_page["url"] = defragmented_url
-            longest_page["word_count"] = len(words)
+            #Skip over low text pages
+            if len(words) >= 50:
+                # Update longest page if necessary
+                if len(words) > longest_page["word_count"]:
+                    longest_page["url"] = defragmented_url
+                    longest_page["word_count"] = len(words)
 
-        # Update word frequencies
-        for word in words:
-            word_frequencies[word] = word_frequencies.get(word, 0) + 1
+                # Update word frequencies
+                for word in words:
+                    word_frequencies[word] = word_frequencies.get(word, 0) + 1
 
-        if urlparse(defragmented_url).netloc.endswith("uci.edu"):
-            count = subdomain_list.get(urlparse(defragmented_url).netloc, 0)
-            subdomain_list[urlparse(defragmented_url).netloc] = count + 1 
+                if urlparse(defragmented_url).netloc.endswith("uci.edu"):
+                    count = subdomain_list.get(urlparse(defragmented_url).netloc, 0)
+                    subdomain_list[urlparse(defragmented_url).netloc] = count + 1 
 
     for link in soup.find_all('a', href=True):
         href = link['href']
-        if scraper.is_valid(href):
-            extract_next_links.append(urlparse(href)._replace(fragment='').geturl())
+        if not href or not isinstance(href, str):
+            continue
+        try:
+            absolute_url = urljoin(url, str(href))
+        except ValueError as e:
+            print(f"Error joining URL {url} with href {href}: {e}")
+            continue
+
+        if is_valid(absolute_url):
+            next_defragmeneted_url = urlparse(absolute_url)._replace(fragment='').geturl()
+            valid_links.append(next_defragmeneted_url)
         
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    return extract_next_links
+    return list(dict.fromkeys(valid_links))
+
+def is_valid(url):
+    # Decide whether to crawl this url or not. 
+    # If you decide to crawl it, return True; otherwise return False.
+    # There are already some conditions that return False.
+    
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in set(["http", "https"]):
+            return False
+        
+        hostname = (parsed.hostname or "").lower()
+    
+        if not hostname:
+            return False
+
+        #Check if the url is in the list of valid domains
+        valid_domains = ("ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu")
+        valid = False
+
+        #Invalid domains
+        invalid_domains = "doku.php"
+
+        valid = any(hostname == domain or hostname.endswith(f".{domain}") for domain in valid_domains)
+        if not valid:
+            return False
+
+        if invalid_domains in url:
+            return False
+
+        #Check if the path is too long to avoid infinite trap
+        if len(parsed.path) > 400:
+            return False
+        
+        path_lower = parsed.path.lower()
+        query_lower = parsed.query.lower()
+        
+        if any(x in path_lower or x in query_lower for x in ['calendar', 'event', 'ical', 'date=', 'day=', 'month=', 'year=']):
+            return False
+        if re.search(r'\d{4}[-/]\d{2}[-/]\d{2}', path_lower) or re.search(r'/\d{4}/\d{2}/', path_lower):
+            return False
+        
+        #Check for duplicate paths to avoid infinite trap
+        path_segments = parsed.path.strip("/").split("/")
+
+        #Detects whether a duplicate path exists
+        if len(path_segments) != len(set(path_segments)):
+            #Allow for certain duplicate paths that can happen because of chance in a valid url
+            if len(path_segments) >= 5 and len(set(path_segments)) < len(path_segments) - 2:
+                return False
+            
+        return not re.match(
+            r".*\.(css|js|bmp|gif|jpe?g|ico"
+            + r"|png|tiff?|mid|mp2|mp3|mp4"
+            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
+            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+            + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
+            + r"|epub|dll|cnf|tgz|sha1"
+            + r"|thmx|mso|arff|rtf|jar|csv"
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+
+    except TypeError:
+        print ("TypeError for ", url)
+        raise
+    except Exception as e:
+        print(f"Something is very bad with URL validation! Error: {e}")
+        return False 
 
 html_doc = """<html><head><title>The Dormouse's story</title></head>
 <body>
@@ -134,13 +221,15 @@ def checkIPAddress(address):
         return False
     
 if __name__ == "__main__":
-    # soup = BeautifulSoup(html_doc, 'html.parser')
-    # print(soup.prettify())
-    response = requests.get("https://isg.ics.uci.edu/events/tag/talks/list/?tribe-bar-date=2022-11-02")
+    soup = BeautifulSoup(html_doc, 'html.parser')
+    print(soup.prettify())
+    response = requests.get("https://wiki.ics.uci.edu/doku.php/wiki:wiki?ns=pasted&tab_files=files&do=media")
     resp = MockResp(response)
-    print(extract_next_links("https://isg.ics.uci.edu/events/tag/talks/list/?tribe-bar-date=2022-11-02", resp))
-
+    print(extract_next_links("https://wiki.ics.uci.edu/doku.php/wiki:wiki?ns=pasted&tab_files=files&do=media", resp))
+    print(is_valid("https://wiki.ics.uci.edu/doku.php/wiki:wiki?ns=pasted&tab_files=files&do=media"))
+    
     print(f'There are {len(unique_pages)} unique pages')
     print(longest_page)
     print(dict(sorted(word_frequencies.items(), key=lambda item: item[1])[:50]))
     print(dict(sorted(subdomain_list.items(), key=lambda item: item[0].lower())))
+    print("wiki.ics.uci.edu/doku.php" in "https://wiki.ics.uci.edu/doku.php/wiki:wiki?ns=pasted&tab_files=files&do=media")
